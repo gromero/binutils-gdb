@@ -1133,7 +1133,7 @@ do_examine (struct format_data fmt, struct gdbarch *gdbarch, CORE_ADDR addr)
 	    = value_from_ulongest (builtin_type (gdbarch)->builtin_data_ptr,
 				   tag_laddr);
 
-	  if (gdbarch_tagged_address_p (current_inferior ()->arch  (), v_addr))
+	  if (target_check_memtag_addr (value_as_address(v_addr)))
 	    {
 	      /* Fetch the allocation tag.  */
 	      struct value *tag
@@ -1290,7 +1290,7 @@ should_validate_memtags (struct value *value)
     return false;
 
   /* We do.  Check whether it includes any tags.  */
-  return gdbarch_tagged_address_p (current_inferior ()->arch  (), value);
+  return target_check_memtag_addr (value_as_address(value));
 }
 
 /* Helper for parsing arguments for print_command_1.  */
@@ -2947,9 +2947,10 @@ memory_tag_print_tag_command (const char *args, enum memtag_type tag_type)
      flag, it is no use trying to access/manipulate its allocation tag.
 
      It is OK to manipulate the logical tag though.  */
+  CORE_ADDR addr = value_as_address(val);
   if (tag_type == memtag_type::allocation
-      && !gdbarch_tagged_address_p (arch, val))
-    show_addr_not_tagged (value_as_address (val));
+      && !target_check_memtag_addr(addr))
+    show_addr_not_tagged (addr);
 
   value *tag_value = gdbarch_get_memtag (arch, val, tag_type);
   std::string tag = gdbarch_memtag_to_string (arch, tag_value);
@@ -3105,8 +3106,9 @@ parse_set_allocation_tag_input (const char *args, struct value **val,
 
   /* If the address is not in a region memory mapped with a memory tagging
      flag, it is no use trying to access/manipulate its allocation tag.  */
-  if (!gdbarch_tagged_address_p (current_inferior ()->arch (), *val))
-    show_addr_not_tagged (value_as_address (*val));
+  CORE_ADDR addr = value_as_address (*val);
+  if (!target_check_memtag_addr (addr))
+    show_addr_not_tagged (addr);
 }
 
 /* Implement the "memory-tag set-allocation-tag" command.
@@ -3130,8 +3132,9 @@ memory_tag_set_allocation_tag_command (const char *args, int from_tty)
 
   /* If the address is not in a region memory mapped with a memory tagging
      flag, it is no use trying to manipulate its allocation tag.  */
-  if (!gdbarch_tagged_address_p (current_inferior ()->arch (), val)) {
-    show_addr_not_tagged (value_as_address(val));
+  CORE_ADDR addr = value_as_address (val);
+  if (!target_check_memtag_addr (addr)) {
+    show_addr_not_tagged (addr);
   }
 
   if (!gdbarch_set_memtags (current_inferior ()->arch (), val, length, tags,
@@ -3159,12 +3162,12 @@ memory_tag_check_command (const char *args, int from_tty)
   struct value *val = process_print_command_args (args, &print_opts, true);
   gdbarch *arch = current_inferior ()->arch ();
 
+  CORE_ADDR addr = value_as_address (val);
+
   /* If the address is not in a region memory mapped with a memory tagging
      flag, it is no use trying to access/manipulate its allocation tag.  */
-  if (!gdbarch_tagged_address_p (arch, val))
-    show_addr_not_tagged (value_as_address (val));
-
-  CORE_ADDR addr = value_as_address (val);
+  if (!target_check_memtag_addr (addr))
+    show_addr_not_tagged (addr);
 
   /* Check if the tag is valid.  */
   if (!gdbarch_memtag_matches_p (arch, val))

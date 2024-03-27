@@ -797,6 +797,12 @@ target_store_memtags (CORE_ADDR address, size_t len,
   return current_inferior ()->top_target ()->store_memtags (address, len, tags, type);
 }
 
+bool
+target_check_memtag_addr (CORE_ADDR address)
+{
+  return current_inferior ()->top_target ()->check_memtag_addr (address);
+}
+
 x86_xsave_layout
 target_fetch_x86_xsave_layout ()
 {
