@@ -1052,6 +1052,8 @@ public:
   bool store_memtags (CORE_ADDR address, size_t len,
 		      const gdb::byte_vector &tags, int type) override;
 
+  bool check_memtag_addr (CORE_ADDR address) override;
+
 public: /* Remote specific methods.  */
 
   void remote_download_command_source (int num, ULONGEST addr,
@@ -15491,6 +15493,19 @@ create_store_memtags_request (gdb::char_vector &packet, CORE_ADDR address,
   strcpy (packet.data (), request.c_str ());
 }
 
+static void
+create_check_memtag_addr_request (gdb::char_vector &packet, CORE_ADDR address)
+{
+  int addr_size = gdbarch_addr_bit (current_inferior ()->arch()) / 8;
+
+  std::string request = string_printf ("qMemTagAddrCheck:%s", phex_nz (address, addr_size));
+
+  if (packet.size () < request.length ())
+    error (_("Contents too big for packet qMemTagAddrCheck."));
+
+  strcpy (packet.data (), request.c_str ());
+}
+
 /* Implement the "fetch_memtags" target_ops method.  */
 
 bool
@@ -15530,6 +15545,29 @@ remote_target::store_memtags (CORE_ADDR address, size_t len,
 
   /* Verify if the request was successful.  */
   return packet_check_result (rs->buf.data ()) == PACKET_OK;
+}
+
+bool
+remote_target::check_memtag_addr (CORE_ADDR address)
+{
+  struct remote_state *rs = get_remote_state ();
+
+  create_check_memtag_addr_request (rs->buf, address);
+
+  putpkt (rs->buf);
+  getpkt (&rs->buf);
+
+  if (packet_check_result (rs->buf.data ()) != PACKET_OK)
+      return false;
+  else if (rs->buf.empty())
+      return false;
+
+  gdb_byte tagged_addr;
+  hex2bin(rs->buf.data(), &tagged_addr , 1);
+  if (tagged_addr)
+      return true;
+  else
+      return false;
 }
 
 /* Return true if remote target T is non-stop.  */

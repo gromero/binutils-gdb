@@ -111,6 +111,8 @@ public:
   /* Write allocation tags to memory via PTRACE.  */
   bool store_memtags (CORE_ADDR address, size_t len,
 		      const gdb::byte_vector &tags, int type) override;
+  /* XXX:  */
+  bool check_memtag_addr (CORE_ADDR address) override;
 };
 
 static aarch64_linux_nat_target the_aarch64_linux_nat_target;
@@ -1072,6 +1074,12 @@ aarch64_linux_nat_target::store_memtags (CORE_ADDR address, size_t len,
     return aarch64_mte_store_memtags (tid, address, len, tags);
 
   return false;
+}
+
+bool
+aarch64_linux_nat_target::check_memtag_addr (CORE_ADDR address)
+{
+  return gdbarch_tagged_address_p (current_inferior ()->arch (), address);
 }
 
 void _initialize_aarch64_linux_nat ();
