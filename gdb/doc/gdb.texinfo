@@ -44093,6 +44093,37 @@ although this should not happen given @value{GDBN} will only send this packet
 if the stub has advertised support for memory tagging via @samp{qSupported}.
 @end table
 
+@item qMemTagCheckAddr:@var{address}
+@anchor {qMemTagCheckAddr}
+@cindex check if a given address is in a memory tagged region.
+@cindex @samp{qMemTagCheckAddr} packet
+Check if address @var{address} is in a memory tagged region; if it is, it's said
+to be tagged.  The target is responsible for checking it, as this is
+architecture-specific.
+
+@var{address} is the address to be checked.
+
+Reply:
+@table @samp
+Replies are in a 2 hex digits format.
+
+@item @var{01}
+Address @var{address} is tagged.
+
+@item @var{00}
+Address @var{address} is not tagged.
+
+@item E @var{nn}
+An error occurred.  This means that address could not be checked for some
+reason.
+
+@item @w{}
+An empty reply indicates that @samp{qMemTagCheckAddr} is not supported by the
+stub.  This situation should not occur because @value{GDBN} will only send this
+packet if the stub has advertised support for memory tagging check via the
+@samp{memory-tagging-check-addr} feature in @samp{qSupported}.
+@end table
+
 @item QMemTags:@var{start address},@var{length}:@var{type}:@var{tag bytes}
 @anchor{QMemTags}
 @cindex store memory tags
@@ -44914,6 +44945,11 @@ These are the currently defined stub features and their properties:
 @tab @samp{-}
 @tab No
 
+@item @samp{memory-tagging-check-addr}
+@tab No
+@tab @samp{-}
+@tab No
+
 @end multitable
 
 These are the currently defined stub features, in more detail:
@@ -45141,9 +45177,17 @@ The remote stub supports and implements the required memory tagging
 functionality and understands the @samp{qMemTags} (@pxref{qMemTags}) and
 @samp{QMemTags} (@pxref{QMemTags}) packets.
 
-For AArch64 GNU/Linux systems, this feature also requires access to the
-@file{/proc/@var{pid}/smaps} file so memory mapping page flags can be inspected.
-This is done via the @samp{vFile} requests.
+For AArch64 GNU/Linux systems, this feature can require access to the
+@file{/proc/@var{pid}/smaps} file so memory mapping page flags can be inspected,
+if @samp{memory-tagging-check-addr} feature (see below) is not supported by the
+stub. Access to the @file{/proc/@var{pid}/smaps} file is done via @samp{vFile}
+requests.
+
+@item memory-tagging-check-addr
+The remote stub supports and implements the required memory tagging address
+check functionality and understands the @samp{qMemTagCheckAddr}
+(@pxref{qMemTagCheckAddr}) packet, which is used for address checking instead
+of accessing the @file{/proc/@var{pid}/smaps} file.
 
 @end table
 
