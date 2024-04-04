@@ -15534,6 +15534,40 @@ create_store_memtags_request (gdb::char_vector &packet, CORE_ADDR address,
   strcpy (packet.data (), request.c_str ());
 }
 
+static void
+create_is_address_tagged_request (gdbarch *gdbarch, gdb::char_vector &packet,
+				  CORE_ADDR address)
+{
+  int addr_size;
+  std::string request;
+
+  addr_size = gdbarch_addr_bit (gdbarch) / 8;
+  request = string_printf ("qIsAddressTagged:%s", phex_nz (address, addr_size));
+
+  if (packet.size () < request.length () + 1)
+    error (_("Contents too big for packet qIsAddressTagged."));
+
+  strcpy (packet.data (), request.c_str ());
+}
+
+static bool
+check_is_address_tagged_reply (gdb::char_vector &packet, bool *tagged)
+{
+  if (packet_check_result (packet).status () != PACKET_OK)
+    return false;
+
+  gdb_byte reply;
+  /* Convert only 2 hex digits, i.e. 1 byte in hex format.  */
+  hex2bin (packet.data (), &reply, 1);
+
+  if (reply == 0x00 || reply == 0x01) {
+    *tagged = !!reply;
+    return true;
+  }
+
+  return false;
+}
+
 /* Implement the "fetch_memtags" target_ops method.  */
 
 bool
@@ -15580,6 +15614,21 @@ remote_target::store_memtags (CORE_ADDR address, size_t len,
 bool
 remote_target::is_address_tagged (gdbarch *gdbarch, CORE_ADDR address)
 {
+  struct remote_state *rs = get_remote_state ();
+  bool is_addr_tagged;
+
+  /* Firstly, attempt to check the address using the qIsAddressTagged
+     packet.  */
+  create_is_address_tagged_request (gdbarch, rs->buf, address);
+
+  putpkt (rs->buf);
+  getpkt (&rs->buf);
+
+  if (check_is_address_tagged_reply (rs->buf, &is_addr_tagged))
+    return is_addr_tagged;
+
+  /* Fallback to arch-specific method of checking whether an address is tagged
+     if qIsAddressTagged fails.  */
   return gdbarch_tagged_address_p (gdbarch, address);
 }
 
