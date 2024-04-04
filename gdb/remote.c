@@ -337,6 +337,9 @@ enum {
      packets and the tag violation stop replies.  */
   PACKET_memory_tagging_feature,
 
+  /* Support checking if an address is tagged via qMemTagCheckAddr packet.  */
+  PACKET_memory_tagging_check_addr_feature,
+
   PACKET_MAX
 };
 
@@ -757,6 +760,10 @@ struct remote_features
   /* Returns true if memory tagging is supported, false otherwise.  */
   bool remote_memory_tagging_p () const
   { return packet_support (PACKET_memory_tagging_feature) == PACKET_ENABLE; }
+
+  bool remote_memory_tagging_check_addr_p () const
+  { return packet_support (PACKET_memory_tagging_check_addr_feature) ==
+			   PACKET_ENABLE; }
 
   /* Reset all packets back to "unknown support".  Called when opening a
      new connection to a remote target.  */
@@ -5764,6 +5771,8 @@ static const struct protocol_feature remote_protocol_features[] = {
   { "no-resumed", PACKET_DISABLE, remote_supported_packet, PACKET_no_resumed },
   { "memory-tagging", PACKET_DISABLE, remote_supported_packet,
     PACKET_memory_tagging_feature },
+  { "memory-tagging-check-addr", PACKET_DISABLE, remote_supported_packet,
+    PACKET_memory_tagging_check_addr_feature },
 };
 
 static char *remote_support_xml;
@@ -5874,6 +5883,10 @@ remote_target::remote_query_supported ()
       if (m_features.packet_set_cmd_state (PACKET_memory_tagging_feature)
 	  != AUTO_BOOLEAN_FALSE)
 	remote_query_supported_append (&q, "memory-tagging+");
+
+      if (m_features.packet_set_cmd_state (PACKET_memory_tagging_check_addr_feature)
+	  != AUTO_BOOLEAN_FALSE)
+	remote_query_supported_append (&q, "memory-tagging-check-addr+");
 
       /* Keep this one last to work around a gdbserver <= 7.10 bug in
 	 the qSupported:xmlRegisters=i386 handling.  */
@@ -15534,6 +15547,21 @@ create_store_memtags_request (gdb::char_vector &packet, CORE_ADDR address,
   strcpy (packet.data (), request.c_str ());
 }
 
+static void
+create_is_address_tagged_request (gdb::char_vector &packet, CORE_ADDR address)
+{
+  int addr_size;
+  std::string request;
+
+  addr_size = gdbarch_addr_bit (current_inferior ()->arch()) / 8;
+  request = string_printf ("qMemTagCheckAddr:%s", phex_nz (address, addr_size));
+
+  if (packet.size () < request.length () + 1)
+    error (_("Contents too big for packet qMemTagCheckAddr."));
+
+  strcpy (packet.data (), request.c_str ());
+}
+
 /* Implement the "fetch_memtags" target_ops method.  */
 
 bool
@@ -15580,7 +15608,27 @@ remote_target::store_memtags (CORE_ADDR address, size_t len,
 bool
 remote_target::is_address_tagged (gdbarch *gdbarch, CORE_ADDR address)
 {
-  return gdbarch_tagged_address_p (gdbarch, address);
+  struct remote_state *rs = get_remote_state ();
+
+  if (!m_features.remote_memory_tagging_check_addr_p ())
+    /* Fallback to arch-specific method of checking whether an address is
+       tagged.  */
+    return gdbarch_tagged_address_p (gdbarch, address);
+
+  create_is_address_tagged_request (rs->buf, address);
+
+  putpkt (rs->buf);
+  getpkt (&rs->buf);
+
+  /* Check if reply is OK.  */
+  if (packet_check_result (rs->buf).status () != PACKET_OK)
+    return false;
+
+  gdb_byte tagged_addr;
+  /* Convert only 2 hex digits, i.e. 1 byte in hex format.  */
+  hex2bin (rs->buf.data (), &tagged_addr , 1);
+
+  return tagged_addr != 0;
 }
 
 /* Return true if remote target T is non-stop.  */
@@ -16065,6 +16113,10 @@ Show the maximum size of the address (in bits) in a memory packet."), NULL,
 
   add_packet_config_cmd (PACKET_memory_tagging_feature,
 			 "memory-tagging-feature", "memory-tagging-feature", 0);
+
+  add_packet_config_cmd (PACKET_memory_tagging_check_addr_feature,
+			 "memory-tagging-check-addr-feature",
+			 "memory-tagging-check-addr-feature", 0);
 
   /* Assert that we've registered "set remote foo-packet" commands
      for all packet configs.  */
