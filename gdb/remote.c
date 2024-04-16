@@ -15659,6 +15659,8 @@ test_memory_tagging_functions ()
   scoped_restore restore_memtag_support_
     = make_scoped_restore (&config->support);
 
+  struct gdbarch *gdbarch = current_inferior ()->arch ();
+
   /* Test memory tagging packet support.  */
   config->support = PACKET_SUPPORT_UNKNOWN;
   SELF_CHECK (remote.supports_memory_tagging () == false);
@@ -15725,6 +15727,46 @@ test_memory_tagging_functions ()
   create_store_memtags_request (packet, 0xdeadbeef, 255, 1, tags);
   SELF_CHECK (memcmp (packet.data (), expected.c_str (),
 		      expected.length ()) == 0);
+
+  /* Test creating a qIsAddressTagged request.  */
+  expected = "qIsAddressTagged:deadbeef";
+  create_is_address_tagged_request (gdbarch, packet, 0xdeadbeef);
+  SELF_CHECK (strcmp (packet.data (), expected.c_str ()) == 0);
+
+  /* Test empty reply on qIsAddressTagged request.  */
+  reply = "E00";
+  /* is_tagged must not changed, hence it's tested too.  */
+  bool is_tagged = false;
+  strcpy (packet.data (), reply.c_str ());
+  SELF_CHECK (check_is_address_tagged_reply (packet, &is_tagged) == false);
+  SELF_CHECK (is_tagged == false);
+
+  /* Test if only the first byte (01) is correctly extracted from a long
+     numerical reply, with remaining garbage.  */
+  reply = "0104A590001234006mC0fe";
+  /* Because the first byte is 01, is_tagged should be set to true.  */
+  is_tagged = false;
+  strcpy (packet.data (), reply.c_str ());
+  SELF_CHECK (check_is_address_tagged_reply (packet, &is_tagged) == true);
+  SELF_CHECK (is_tagged == true);
+
+  /* Test if only the first byte (00) is correctly extracted from a long
+     numerical reply, with remaining garbage.  */
+  reply = "0004A590001234006mC0fe";
+  /* Because the first byte is 00, is_tagged should be set to false.  */
+  is_tagged = true;
+  strcpy (packet.data (), reply.c_str ());
+  SELF_CHECK (check_is_address_tagged_reply (packet, &is_tagged) == true);
+  SELF_CHECK (is_tagged == false);
+
+  /* Test if only the first byte, 04, is correctly extracted and recognized
+     as invalid (only 00 and 01 are valid replies).  */
+  reply = "0404A590001234006mC0fe";
+  /* Because the first byte is invalid is_tagged must not change.  */
+  is_tagged = false;
+  strcpy (packet.data (), reply.c_str ());
+  SELF_CHECK (check_is_address_tagged_reply (packet, &is_tagged) == false);
+  SELF_CHECK (is_tagged == false);
 }
 
 static void
