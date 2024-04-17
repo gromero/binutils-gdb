@@ -337,6 +337,9 @@ enum {
      packets and the tag violation stop replies.  */
   PACKET_memory_tagging_feature,
 
+  /* Support for the qIsAddressTagged packet.  */
+  PACKET_qIsAddressTagged,
+
   PACKET_MAX
 };
 
@@ -15552,9 +15555,17 @@ create_is_address_tagged_request (gdbarch *gdbarch, gdb::char_vector &packet,
 }
 
 static bool
-check_is_address_tagged_reply (gdb::char_vector &packet, bool *tagged)
+check_is_address_tagged_reply (gdb::char_vector &packet, bool &tagged)
 {
-  if (packet_check_result (packet).status () != PACKET_OK)
+  remote_target *remote;
+
+  remote = get_current_remote_target ();
+  if (remote == nullptr)
+    error (_("Can't check reply: no connection to remote target."));
+
+  packet_result result = remote->m_features.packet_ok (packet, PACKET_qAttached);
+  /* Return false if reply is an error or empty (not supported).  */
+  if (result.status () != PACKET_OK)
     return false;
 
   gdb_byte reply;
@@ -15562,7 +15573,7 @@ check_is_address_tagged_reply (gdb::char_vector &packet, bool *tagged)
   hex2bin (packet.data (), &reply, 1);
 
   if (reply == 0x00 || reply == 0x01) {
-    *tagged = !!reply;
+    tagged = !!reply;
     return true;
   }
 
@@ -15618,16 +15629,22 @@ remote_target::is_address_tagged (gdbarch *gdbarch, CORE_ADDR address)
   struct remote_state *rs = get_remote_state ();
   bool is_addr_tagged;
 
-  /* Firstly, attempt to check the address using the qIsAddressTagged
-     packet.  */
-  create_is_address_tagged_request (gdbarch, rs->buf, address);
+  if (m_features.packet_support (PACKET_qIsAddressTagged) != PACKET_DISABLE) {
+    /* Use the qIsTaggedAddress packet.  */
+    /* Firstly, attempt to check the address using the qIsAddressTagged
+       packet.  */
+    create_is_address_tagged_request (gdbarch, rs->buf, address);
 
-  putpkt (rs->buf);
-  getpkt (&rs->buf);
+    putpkt (rs->buf);
+    getpkt (&rs->buf);
 
-  if (check_is_address_tagged_reply (rs->buf, &is_addr_tagged))
-    return is_addr_tagged;
+    /* If qIsAddressTagged is not supported PACKET_qIsAddressTagged will be
+       set to PACKET_DISABLE; also.  */
+    if (check_is_address_tagged_reply (rs->buf, is_addr_tagged))
+      return is_addr_tagged;
+  }
 
+  /* Use the fallback smaps method.  */
   /* Fallback to arch-specific method of checking whether an address is tagged
      if qIsAddressTagged fails.  */
   return gdbarch_tagged_address_p (gdbarch, address);
@@ -15738,7 +15755,7 @@ test_memory_tagging_functions ()
   /* is_tagged must not changed, hence it's tested too.  */
   bool is_tagged = false;
   strcpy (packet.data (), reply.c_str ());
-  SELF_CHECK (check_is_address_tagged_reply (packet, &is_tagged) == false);
+  SELF_CHECK (check_is_address_tagged_reply (packet, is_tagged) == false);
   SELF_CHECK (is_tagged == false);
 
   /* Test if only the first byte (01) is correctly extracted from a long
@@ -15747,7 +15764,7 @@ test_memory_tagging_functions ()
   /* Because the first byte is 01, is_tagged should be set to true.  */
   is_tagged = false;
   strcpy (packet.data (), reply.c_str ());
-  SELF_CHECK (check_is_address_tagged_reply (packet, &is_tagged) == true);
+  SELF_CHECK (check_is_address_tagged_reply (packet, is_tagged) == true);
   SELF_CHECK (is_tagged == true);
 
   /* Test if only the first byte (00) is correctly extracted from a long
@@ -15756,7 +15773,7 @@ test_memory_tagging_functions ()
   /* Because the first byte is 00, is_tagged should be set to false.  */
   is_tagged = true;
   strcpy (packet.data (), reply.c_str ());
-  SELF_CHECK (check_is_address_tagged_reply (packet, &is_tagged) == true);
+  SELF_CHECK (check_is_address_tagged_reply (packet, is_tagged) == true);
   SELF_CHECK (is_tagged == false);
 
   /* Test if only the first byte, 04, is correctly extracted and recognized
@@ -15765,7 +15782,7 @@ test_memory_tagging_functions ()
   /* Because the first byte is invalid is_tagged must not change.  */
   is_tagged = false;
   strcpy (packet.data (), reply.c_str ());
-  SELF_CHECK (check_is_address_tagged_reply (packet, &is_tagged) == false);
+  SELF_CHECK (check_is_address_tagged_reply (packet, is_tagged) == false);
   SELF_CHECK (is_tagged == false);
 }
 
@@ -16160,6 +16177,9 @@ Show the maximum size of the address (in bits) in a memory packet."), NULL,
 
   add_packet_config_cmd (PACKET_memory_tagging_feature,
 			 "memory-tagging-feature", "memory-tagging-feature", 0);
+
+  add_packet_config_cmd (PACKET_qIsAddressTagged,
+			 "qIsAddressTagged", "memory-tagging-address-check", 0);
 
   /* Assert that we've registered "set remote foo-packet" commands
      for all packet configs.  */
